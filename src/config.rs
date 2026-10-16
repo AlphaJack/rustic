@@ -21,9 +21,9 @@ use conflate::Merge;
 use directories::ProjectDirs;
 use itertools::Itertools;
 use jiff::{Timestamp, Zoned, tz::TimeZone};
-use log::Level;
+use log::{Level, log};
 use reqwest::Url;
-use rustic_core::{ConfigOptions, SnapshotGroupCriterion};
+use rustic_core::SnapshotGroupCriterion;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 #[cfg(not(all(feature = "mount", feature = "webdav")))]
@@ -35,7 +35,7 @@ use crate::commands::mount::MountCmd;
 use crate::commands::webdav::WebDavCmd;
 
 use crate::{
-    commands::{backup::BackupCmd, copy::CopyCmd, forget::ForgetOptions},
+    commands::{backup::BackupCmd, copy::CopyCmd, forget::ForgetOptions, init::InitOptions},
     config::{hooks::Hooks, logging::LoggingOptions, progress_options::ProgressOptions},
     filtering::SnapshotFilter,
     repository::AllRepositoryOptions,
@@ -60,7 +60,7 @@ pub struct RusticConfig {
 
     /// Options for initializing a repository
     #[clap(skip)]
-    pub init: ConfigOptions,
+    pub init: InitOptions,
 
     /// Snapshot filter options
     #[clap(flatten, next_help_heading = "Snapshot filter options")]
@@ -107,6 +107,17 @@ impl Display for RusticConfig {
 }
 
 impl RusticConfig {
+    /// Load the config of another repository, e.g. a copy target, from its profile.
+    pub fn from_profile(profile: &str) -> Result<Self> {
+        let mut merge_logs = Vec::new();
+        let mut config = Self::default();
+        config.merge_profile(profile, &mut merge_logs, Level::Error)?;
+        for (level, merge_log) in merge_logs {
+            log!(level, "{merge_log}");
+        }
+        Ok(config)
+    }
+
     /// Merge a profile into the current config by reading the corresponding config file.
     /// Also recursively merge all profiles given within this config file.
     ///

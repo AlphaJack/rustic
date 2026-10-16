@@ -10,7 +10,7 @@ use crate::{
 use abscissa_core::{Command, FrameworkError, Runnable, Shutdown, config::Override};
 use anyhow::{Result, bail};
 use conflate::Merge;
-use log::{Level, error, info, log};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 
 use rustic_core::{CopySnapshot, Id, KeyOptions, repofile::SnapshotFile};
@@ -88,13 +88,7 @@ impl CopyCmd {
         snapshots.sort_unstable();
 
         for target in &config.copy.targets {
-            let mut merge_logs = Vec::new();
-            let mut target_config = RusticConfig::default();
-            target_config.merge_profile(target, &mut merge_logs, Level::Error)?;
-            // display logs from merging
-            for (level, merge_log) in merge_logs {
-                log!(level, "{merge_log}");
-            }
+            let target_config = RusticConfig::from_profile(target)?;
             let target_opt = &target_config.repository;
             if let Err(err) =
                 target_opt.run(|target_repo| self.copy(&repo, target_repo, target_opt, &snapshots))

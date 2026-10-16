@@ -10,7 +10,10 @@ use crate::commands::program_version;
 use crate::repository::IndexedIdsRepo;
 use crate::{
     Application, RUSTIC_APP,
-    commands::{init::init, snapshots::fill_table},
+    commands::{
+        init::{InitOptions, init},
+        snapshots::fill_table,
+    },
     config::{hooks::Hooks, parse_labels},
     helpers::{bold_cell, bytes_size_to_string, table},
     repository::Repo,
@@ -29,8 +32,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
 use rustic_core::{
-    BackupOptions, CommandInput, ConfigOptions, KeyOptions, LocalSourceFilterOptions,
-    LocalSourceSaveOptions, ParentOptions, PathList, SnapshotOptions,
+    BackupOptions, CommandInput, KeyOptions, LocalSourceFilterOptions, LocalSourceSaveOptions,
+    ParentOptions, PathList, SnapshotOptions,
     repofile::{SnapshotFile, SnapshotId},
 };
 
@@ -138,7 +141,7 @@ pub struct BackupCmd {
     #[clap(flatten, next_help_heading = "Config options (when using --init)")]
     #[serde(skip)]
     #[merge(skip)]
-    config_opts: ConfigOptions,
+    init_opts: InitOptions,
 
     /// Hooks to use
     #[clap(skip)]
@@ -244,7 +247,7 @@ impl BackupCmd {
                 repo,
                 &config.repository.credential_opts,
                 &self.key_opts,
-                &self.config_opts,
+                &self.init_opts,
             )?
         } else {
             repo.open(&config.repository.credential_opts)?

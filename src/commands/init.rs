@@ -2,15 +2,19 @@
 
 use abscissa_core::{Command, Runnable, Shutdown, status_err};
 use anyhow::{Result, bail};
-use conflate::MergeFrom;
+use bytesize::ByteSize;
+use conflate::{Merge, MergeFrom};
 use dialoguer::Password;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    Application, RUSTIC_APP,
+    Application, RUSTIC_APP, RusticConfig,
     repository::{OpenRepo, Repo},
 };
 
-use rustic_core::{ConfigOptions, CredentialOptions, Credentials, KeyOptions};
+use rustic_core::{
+    ConfigOptions, CredentialOptions, Credentials, KeyOptions, repofile::ChunkerPolynomial,
+};
 
 /// `init` subcommand
 #[derive(clap::Parser, Command, Debug)]
@@ -25,6 +29,21 @@ pub(crate) struct InitCmd {
 
     /// Config options
     #[clap(flatten, next_help_heading = "Config options")]
+    init_opts: InitOptions,
+}
+
+/// Options for initializing a repository
+#[derive(Clone, Default, Debug, clap::Parser, Serialize, Deserialize, Merge)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct InitOptions {
+    /// Copy the chunker parameters from the repository of this profile to allow copying snapshots between both.
+    /// Overrides the other chunker options
+    #[clap(long, value_name = "PROFILE")]
+    #[merge(strategy=conflate::option::overwrite_none)]
+    copy_chunker_params_from: Option<String>,
+
+    #[clap(flatten)]
+    #[serde(flatten)]
     config_opts: ConfigOptions,
 }
 
@@ -78,7 +97,7 @@ impl InitCmd {
             repo,
             &config.repository.credential_opts,
             &self.key_opts,
-            &self.config_opts,
+            &self.init_opts,
         )?;
         Ok(())
     }
@@ -91,11 +110,12 @@ impl InitCmd {
 /// * `repo` - Repository to initialize
 /// * `credential_opts` - Credential options
 /// * `key_opts` - Key options (only used when generating a new key)
-/// * `config_opts` - Config options
+/// * `init_opts` - Init options, merged with the `[init]` section of the profile
 ///
 /// # Errors
 ///
 /// * If getting the credentials from the options fails
+/// * If the repository to copy the chunker parameters from cannot be opened
 ///
 /// # Returns
 ///
@@ -104,12 +124,25 @@ pub(crate) fn init(
     repo: Repo,
     credential_opts: &CredentialOptions,
     key_opts: &KeyOptions,
-    config_opts: &ConfigOptions,
+    init_opts: &InitOptions,
 ) -> Result<OpenRepo> {
-    let config = RUSTIC_APP.config();
-    let config_opts = config_opts.merge_from(config.init);
+    let mut opts = init_opts
+        .clone()
+        .merge_from(RUSTIC_APP.config().init.clone());
+    if let Some(profile) = &opts.copy_chunker_params_from {
+        let source = RusticConfig::from_profile(profile)?
+            .repository
+            .run_open(|repo| Ok(repo.config().clone()))?;
+        opts.config_opts = opts
+            .config_opts
+            .set_chunker(source.chunker())
+            .set_chunker_polynomial(source.chunker_polynomial.parse::<ChunkerPolynomial>()?)
+            .set_chunk_size(ByteSize(source.chunk_size() as u64))
+            .set_chunk_min_size(ByteSize(source.chunk_min_size() as u64))
+            .set_chunk_max_size(ByteSize(source.chunk_max_size() as u64));
+    }
     let pass = init_credentials(credential_opts)?;
-    Ok(repo.0.init(&pass, key_opts, &config_opts)?)
+    Ok(repo.0.init(&pass, key_opts, &opts.config_opts)?)
 }
 
 pub(crate) fn init_credentials(credential_opts: &CredentialOptions) -> Result<Credentials> {
